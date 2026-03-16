@@ -1,0 +1,22 @@
+# Secrets — never commit
+.env
+vertex/
+*.json.key
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+dist/
+build/
+
+# Generated media (large binary files, re-generated on demand)
+backend/app/static/images/
+backend/app/static/videos/
+
+# OS
+.DS_Store
+Thumbs.db

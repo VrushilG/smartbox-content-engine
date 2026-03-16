@@ -1,0 +1,26 @@
+fastapi==0.115.0
+uvicorn[standard]==0.30.6
+anthropic==0.34.2
+pydantic>=2.0
+pydantic-settings==2.5.2
+python-dotenv==1.0.1
+pandas==2.2.3
+aiofiles==24.1.0
+structlog==24.4.0
+python-multipart==0.0.12
+httpx==0.27.2
+
+# OpenRouter + any OpenAI-compatible provider
+openai>=1.54.0
+
+# Fal.ai — video generation (Wan 2.1, Kling, MiniMax)
+fal-client>=0.5.0
+
+# Replicate — video generation fallback (Wan 2.2)
+replicate>=0.32.0
+
+# Google Veo 2.0 — video generation with audio (free tier via AI Studio)
+google-genai>=1.0.0
+
+# Supabase — optional persistence layer (no-op if SUPABASE_URL not set)
+supabase>=2.0.0

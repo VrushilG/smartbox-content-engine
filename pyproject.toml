@@ -1,0 +1,24 @@
+[project]
+name = "smartbox-content-engine"
+version = "0.1.0"
+description = "Content automation POC for Smartbox Group"
+requires-python = ">=3.11"
+
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+select = ["E", "F", "I", "UP", "N", "S", "B", "A", "C4", "PT"]
+ignore = ["S101"]
+
+[tool.ruff.isort]
+known-first-party = ["app"]
+
+[tool.black]
+target-version = ["py311"]
+line-length = 100
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_functions = ["test_*"]
