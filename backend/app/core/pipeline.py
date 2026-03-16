@@ -1,3 +1,4 @@
+import asyncio
 from collections.abc import AsyncGenerator
 
 from app.config import settings
@@ -189,75 +190,88 @@ async def process_csv(
 
     await supabase_service.save_job(job_id, len(rows), user_id=user_id)
 
-    for row in rows:
-        yield "row_started", {"job_id": job_id, "product_id": row.id, "name": row.name}
-        logger.info("row_started", job_id=job_id, product_id=row.id)
+    semaphore = asyncio.Semaphore(settings.row_concurrency)
+    queue: asyncio.Queue = asyncio.Queue()
+    _DONE = object()  # sentinel to signal all rows finished
 
-        # ---- Step 1: Text ----
-        try:
-            asset = await _run_text_step(row, job_id, llm_service)
-            yield "row_text_done", {
+    async def _process_one(row: ProductRow) -> None:
+        async with semaphore:
+            await queue.put(("row_started", {"job_id": job_id, "product_id": row.id, "name": row.name}))
+            logger.info("row_started", job_id=job_id, product_id=row.id)
+
+            # ---- Step 1: Text ----
+            try:
+                asset = await _run_text_step(row, job_id, llm_service)
+                await queue.put(("row_text_done", {
+                    "job_id": job_id,
+                    "product_id": row.id,
+                    "asset": asset.model_dump(),
+                }))
+            except PipelineError as exc:
+                logger.error("row_error", job_id=job_id, product_id=row.id, error=str(exc))
+                await queue.put(("row_error", {"job_id": job_id, "product_id": row.id, "error": str(exc)}))
+                return
+            except Exception as exc:
+                logger.error("row_unexpected_error", job_id=job_id, product_id=row.id, error=str(exc))
+                await queue.put(("row_error", {
+                    "job_id": job_id,
+                    "product_id": row.id,
+                    "error": f"Text generation failed: {exc}",
+                }))
+                return
+
+            # ---- Step 2: Image ----
+            logger.info("row_image_generating", job_id=job_id, product_id=row.id)
+            await queue.put(("row_image_generating", {"job_id": job_id, "product_id": row.id}))
+
+            image_url, image_status = await _run_image_step(asset, row, job_id)
+            asset.image_url = image_url
+            asset.image_status = image_status
+            await queue.put(("row_image_done", {
                 "job_id": job_id,
                 "product_id": row.id,
-                "asset": asset.model_dump(),
-            }
-        except PipelineError as exc:
-            logger.error("row_error", job_id=job_id, product_id=row.id, error=str(exc))
-            yield "row_error", {"job_id": job_id, "product_id": row.id, "error": str(exc)}
-            continue
-        except Exception as exc:
-            logger.error(
-                "row_unexpected_error", job_id=job_id, product_id=row.id, error=str(exc)
+                "image_url": image_url,
+                "image_status": image_status,
+            }))
+
+            # ---- Step 3: Video ----
+            logger.info("row_video_generating", job_id=job_id, product_id=row.id)
+            await queue.put(("row_video_generating", {"job_id": job_id, "product_id": row.id}))
+
+            video_url, video_status, video_error = await _run_video_step(asset, row, job_id)
+            asset.video_url = video_url
+            asset.video_status = video_status
+            asset.video_error = video_error
+            await queue.put(("row_video_done", {
+                "job_id": job_id,
+                "product_id": row.id,
+                "video_url": video_url,
+                "video_status": video_status,
+                "video_error": video_error,
+            }))
+
+            # ---- Step 4: Persist to Supabase (no-op if not configured) ----
+            await supabase_service.save_asset(job_id, asset, name=row.name, user_id=user_id)
+
+            # ---- Step 5: Final event with complete asset ----
+            logger.info(
+                "row_done",
+                job_id=job_id,
+                product_id=row.id,
+                dam_filename=asset.dam_filename,
+                image_status=image_status,
+                video_status=video_status,
             )
-            yield "row_error", {
-                "job_id": job_id,
-                "product_id": row.id,
-                "error": f"Text generation failed: {exc}",
-            }
-            continue
+            await queue.put(("row_done", {"job_id": job_id, "product_id": row.id, "asset": asset.model_dump()}))
 
-        # ---- Step 2: Image ----
-        logger.info("row_image_generating", job_id=job_id, product_id=row.id)
-        yield "row_image_generating", {"job_id": job_id, "product_id": row.id}
+    async def _run_all() -> None:
+        await asyncio.gather(*[_process_one(row) for row in rows], return_exceptions=True)
+        await queue.put(_DONE)
 
-        image_url, image_status = await _run_image_step(asset, row, job_id)
-        asset.image_url = image_url
-        asset.image_status = image_status
+    asyncio.create_task(_run_all())
 
-        yield "row_image_done", {
-            "job_id": job_id,
-            "product_id": row.id,
-            "image_url": image_url,
-            "image_status": image_status,
-        }
-
-        # ---- Step 3: Video ----
-        logger.info("row_video_generating", job_id=job_id, product_id=row.id)
-        yield "row_video_generating", {"job_id": job_id, "product_id": row.id}
-
-        video_url, video_status, video_error = await _run_video_step(asset, row, job_id)
-        asset.video_url = video_url
-        asset.video_status = video_status
-        asset.video_error = video_error
-
-        yield "row_video_done", {
-            "job_id": job_id,
-            "product_id": row.id,
-            "video_url": video_url,
-            "video_status": video_status,
-            "video_error": video_error,
-        }
-
-        # ---- Step 4: Persist to Supabase (no-op if not configured) ----
-        await supabase_service.save_asset(job_id, asset, name=row.name, user_id=user_id)
-
-        # ---- Step 5: Final event with complete asset ----
-        logger.info(
-            "row_done",
-            job_id=job_id,
-            product_id=row.id,
-            dam_filename=asset.dam_filename,
-            image_status=image_status,
-            video_status=video_status,
-        )
-        yield "row_done", {"job_id": job_id, "product_id": row.id, "asset": asset.model_dump()}
+    while True:
+        item = await queue.get()
+        if item is _DONE:
+            break
+        yield item

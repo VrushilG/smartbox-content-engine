@@ -1,4 +1,5 @@
 import asyncio
+import random
 from pathlib import Path
 
 import httpx
@@ -7,6 +8,25 @@ from app.config import settings
 from app.utils.logger import get_logger
 
 logger = get_logger(__name__)
+
+
+def _get_vertex_client():
+    """Return a Vertex AI genai.Client using a randomly chosen configured project.
+
+    When multiple projects are configured (VERTEXAI_PROJECT + VERTEXAI_PROJECT_2),
+    calls are distributed randomly to balance quota usage across both.
+    """
+    from google import genai  # noqa: PLC0415
+    import os  # noqa: PLC0415
+
+    projects = settings.vertex_projects
+    if not projects:
+        raise RuntimeError("No Vertex AI project configured — set VERTEXAI_PROJECT")
+    cfg = random.choice(projects)
+    if cfg["credentials"]:
+        os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = cfg["credentials"]
+    logger.debug("vertex_client_selected", project=cfg["project"])
+    return genai.Client(vertexai=True, project=cfg["project"], location=cfg["location"])
 
 # Local directory for saved images
 STATIC_IMAGES_DIR = Path(__file__).parent.parent / "static" / "images"
@@ -25,23 +45,14 @@ async def _generate_via_vertex_imagen(prompt: str, product_id: str) -> tuple[str
     `gcloud auth application-default login`.
     """
     try:
-        from google import genai  # noqa: PLC0415
         from google.genai import types as genai_types  # noqa: PLC0415
     except ImportError:
         logger.warning("google_genai_not_installed_for_vertex_imagen")
         return "", "failed"
 
-    if settings.resolved_google_credentials:
-        import os  # noqa: PLC0415
-        os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = settings.resolved_google_credentials
-
     logger.info("image_generate_start", provider="vertex_imagen", product_id=product_id)
     try:
-        client = genai.Client(
-            vertexai=True,
-            project=settings.vertexai_project,
-            location=settings.vertexai_location,
-        )
+        client = _get_vertex_client()
         response = await asyncio.to_thread(
             client.models.generate_images,
             model="imagen-4.0-fast-generate-001",

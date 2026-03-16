@@ -13,12 +13,31 @@ and served at /static/videos/{product_id}.mp4.
 
 import asyncio
 import os
+import random
 from pathlib import Path
 
 from app.config import settings
 from app.utils.logger import get_logger
 
 logger = get_logger(__name__)
+
+
+def _get_vertex_client():
+    """Return a Vertex AI genai.Client using a randomly chosen configured project.
+
+    When multiple projects are configured (VERTEXAI_PROJECT + VERTEXAI_PROJECT_2),
+    calls are distributed randomly to balance quota usage across both.
+    """
+    from google import genai  # noqa: PLC0415
+
+    projects = settings.vertex_projects
+    if not projects:
+        raise RuntimeError("No Vertex AI project configured — set VERTEXAI_PROJECT")
+    cfg = random.choice(projects)
+    if cfg["credentials"]:
+        os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = cfg["credentials"]
+    logger.debug("vertex_client_selected", project=cfg["project"])
+    return genai.Client(vertexai=True, project=cfg["project"], location=cfg["location"])
 
 STATIC_VIDEOS_DIR = Path(__file__).parent.parent / "static" / "videos"
 
@@ -85,23 +104,14 @@ async def _generate_via_vertex_veo(prompt: str, product_id: str) -> tuple[str, s
       client.files.download(file=generated_video.video)
     """
     try:
-        from google import genai  # noqa: PLC0415
         from google.genai import types as genai_types  # noqa: PLC0415
     except ImportError:
         logger.warning("google_genai_not_installed", hint="pip install google-genai")
         return "", "skipped", "google-genai package not installed"
 
-    if settings.resolved_google_credentials:
-        import os as _os  # noqa: PLC0415
-        _os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = settings.resolved_google_credentials
-
     logger.info("video_generate_start", provider="vertex_veo", model=VERTEX_VEO_MODEL, product_id=product_id)
     try:
-        client = genai.Client(
-            vertexai=True,
-            project=settings.vertexai_project,
-            location=settings.vertexai_location,
-        )
+        client = _get_vertex_client()
 
         # Step 1: Submit generation
         operation = await asyncio.to_thread(

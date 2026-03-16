@@ -35,13 +35,23 @@ class Settings(BaseSettings):
     fal_api_key: str = ""
     replicate_api_key: str = ""
 
-    # ---- Vertex AI (primary media provider) ----
+    # ---- Vertex AI project 1 (primary media provider) ----
     # Set VERTEXAI_PROJECT to your GCP project ID to enable Vertex AI.
     # Auth via GOOGLE_APPLICATION_CREDENTIALS (service account JSON path)
     # or via `gcloud auth application-default login` (leave blank).
     vertexai_project: str = ""
     vertexai_location: str = "us-central1"
     google_application_credentials: str = ""
+
+    # ---- Vertex AI project 2 (optional, for load balancing) ----
+    # Add a second GCP project to distribute Vertex AI calls and double the credit pool.
+    vertexai_project_2: str = ""
+    vertexai_location_2: str = "us-central1"
+    google_application_credentials_2: str = ""
+
+    # ---- Concurrency ----
+    # Number of CSV rows processed in parallel per upload.
+    row_concurrency: int = 4
 
     # ---- App settings ----
     default_locale: str = "IE"
@@ -78,6 +88,38 @@ class Settings(BaseSettings):
             return str(p)
         # Relative path — resolve from project root (parent of backend/)
         return str((_ENV_FILE.parent / p).resolve())
+
+    @property
+    def resolved_google_credentials_2(self) -> str:
+        """Return absolute path to the second credentials JSON, resolving relative paths."""
+        if not self.google_application_credentials_2:
+            return ""
+        p = Path(self.google_application_credentials_2)
+        if p.is_absolute():
+            return str(p)
+        return str((_ENV_FILE.parent / p).resolve())
+
+    @property
+    def vertex_projects(self) -> list[dict]:
+        """Return all configured Vertex AI projects for load balancing.
+
+        Returns a list of dicts with keys: project, location, credentials.
+        Image/video services pick randomly from this list to distribute load.
+        """
+        projects = []
+        if self.vertexai_project:
+            projects.append({
+                "project": self.vertexai_project,
+                "location": self.vertexai_location,
+                "credentials": self.resolved_google_credentials,
+            })
+        if self.vertexai_project_2:
+            projects.append({
+                "project": self.vertexai_project_2,
+                "location": self.vertexai_location_2,
+                "credentials": self.resolved_google_credentials_2,
+            })
+        return projects
 
     @property
     def use_fal(self) -> bool:
