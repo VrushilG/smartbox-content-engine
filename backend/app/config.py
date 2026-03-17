@@ -37,17 +37,20 @@ class Settings(BaseSettings):
 
     # ---- Vertex AI project 1 (primary media provider) ----
     # Set VERTEXAI_PROJECT to your GCP project ID to enable Vertex AI.
-    # Auth via GOOGLE_APPLICATION_CREDENTIALS (service account JSON path)
-    # or via `gcloud auth application-default login` (leave blank).
+    # Auth — choose one:
+    #   Local dev:  GOOGLE_APPLICATION_CREDENTIALS=vertex/key.json  (file path)
+    #   Railway:    GOOGLE_APPLICATION_CREDENTIALS_JSON={"type":"service_account",...}  (JSON content)
     vertexai_project: str = ""
     vertexai_location: str = "us-central1"
     google_application_credentials: str = ""
+    google_credentials_json: str = ""  # Full service account JSON for Railway / containerised deploys
 
     # ---- Vertex AI project 2 (optional, for load balancing) ----
     # Add a second GCP project to distribute Vertex AI calls and double the credit pool.
     vertexai_project_2: str = ""
     vertexai_location_2: str = "us-central1"
     google_application_credentials_2: str = ""
+    google_credentials_json_2: str = ""  # Full service account JSON for second project on Railway
 
     # ---- Concurrency ----
     # Number of CSV rows processed in parallel per upload.
@@ -80,18 +83,34 @@ class Settings(BaseSettings):
 
     @property
     def resolved_google_credentials(self) -> str:
-        """Return absolute path to the credentials JSON, resolving relative paths from project root."""
+        """Return absolute path to the credentials JSON.
+
+        Supports two auth modes:
+          Railway / containers: set GOOGLE_APPLICATION_CREDENTIALS_JSON to the full
+            service account JSON string — it is written to a temp file automatically.
+          Local dev: set GOOGLE_APPLICATION_CREDENTIALS to a file path (absolute or
+            relative to the project root).
+        """
+        # Option A: JSON content provided directly (Railway / containerised deployment)
+        if self.google_credentials_json:
+            creds_path = Path("/tmp/gcp-creds-1.json")
+            creds_path.write_text(self.google_credentials_json)
+            return str(creds_path)
+        # Option B: File path provided (local development)
         if not self.google_application_credentials:
             return ""
         p = Path(self.google_application_credentials)
         if p.is_absolute():
             return str(p)
-        # Relative path — resolve from project root (parent of backend/)
         return str((_ENV_FILE.parent / p).resolve())
 
     @property
     def resolved_google_credentials_2(self) -> str:
-        """Return absolute path to the second credentials JSON, resolving relative paths."""
+        """Return absolute path to the second credentials JSON (same logic as above)."""
+        if self.google_credentials_json_2:
+            creds_path = Path("/tmp/gcp-creds-2.json")
+            creds_path.write_text(self.google_credentials_json_2)
+            return str(creds_path)
         if not self.google_application_credentials_2:
             return ""
         p = Path(self.google_application_credentials_2)
