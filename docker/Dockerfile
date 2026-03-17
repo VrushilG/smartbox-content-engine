@@ -22,7 +22,10 @@ COPY frontend/src ./frontend/src
 COPY data ./data
 
 # Non-root user for security
-RUN adduser --disabled-password --gecos "" appuser
+# Pre-create writable dirs and transfer ownership before switching user
+RUN adduser --disabled-password --gecos "" appuser && \
+    mkdir -p /app/app/static/images /app/app/static/videos && \
+    chown -R appuser:appuser /app
 USER appuser
 
 # Expose the API port
