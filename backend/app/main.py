@@ -35,13 +35,13 @@ logger.info("static_mounted", path=str(static_path))
 
 # Serve frontend static files — no build step required
 # Path resolution works for both local dev and Docker:
-#   Docker:    /app/app/main.py  → parent.parent = /app       → /app/frontend/src  ✓
-#   Local dev: backend/app/main.py → parent.parent = backend/ → not found, falls back below
-#   Local dev fallback: parent.parent.parent = project root    → project/frontend/src ✓
+#   Docker:    /app/app/main.py    → parent = /app     → /app/frontend/src      ✓
+#   Local dev: backend/app/main.py → parent = backend/ → not found, falls back
+#   Local dev fallback:              parent.parent = project root → project/frontend/src ✓
 _app_dir = Path(__file__).parent
 frontend_path = _app_dir.parent / "frontend" / "src"
 if not frontend_path.exists():
-    frontend_path = _app_dir.parent.parent.parent / "frontend" / "src"
+    frontend_path = _app_dir.parent.parent / "frontend" / "src"
 if frontend_path.exists():
     app.mount("/", StaticFiles(directory=str(frontend_path), html=True), name="frontend")
     logger.info("frontend_mounted", path=str(frontend_path))
