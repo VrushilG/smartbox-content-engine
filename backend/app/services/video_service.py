@@ -160,13 +160,13 @@ async def _generate_via_vertex_veo(prompt: str, product_id: str) -> tuple[str, s
 
     except Exception as exc:
         err_str = str(exc)
-        if "quota" in err_str.lower() or "rate" in err_str.lower() or "429" in err_str:
-            reason = "Quota exceeded — try again later"
+        if "quota" in err_str.lower() or "rate limit" in err_str.lower() or "429" in err_str:
+            reason = f"Veo QPM limit — {err_str[:200]}"
         elif "not found" in err_str.lower() or "404" in err_str:
-            reason = "Model not available in your region"
+            reason = f"Model not available — {err_str[:200]}"
         else:
-            reason = err_str[:100]
-        logger.warning("vertex_veo_failed", product_id=product_id, error=err_str[:300], reason=reason)
+            reason = err_str[:200]
+        logger.warning("vertex_veo_failed", product_id=product_id, error=err_str[:500])
         return "", "failed", reason
 
 

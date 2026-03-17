@@ -20,7 +20,7 @@ fal-client>=0.5.0
 replicate>=0.32.0
 
 # Google Veo 2.0 — video generation with audio (free tier via AI Studio)
-google-genai>=1.0.0
+google-genai>=1.67.0
 
 # Supabase — optional persistence layer (no-op if SUPABASE_URL not set)
 supabase>=2.0.0
