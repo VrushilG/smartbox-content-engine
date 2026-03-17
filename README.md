@@ -8,7 +8,7 @@ A content automation POC for **Smartbox Group** — Europe's leading experience 
 
 ## Prerequisites
 
-- Python 3.11+
+- Python 3.12+
 - Docker & Docker Compose (optional)
 - An Anthropic API key **or** a local [Ollama](https://ollama.ai) instance
 
@@ -18,7 +18,7 @@ A content automation POC for **Smartbox Group** — Europe's leading experience 
 
 ```bash
 # 1. Clone and enter the repo
-git clone <repo-url>
+git clone https://github.com/VrushilG/smartbox-content-engine.git
 cd smartbox-content-engine
 
 # 2. Set up environment
@@ -99,20 +99,55 @@ See [docs/brand_guidelines.md](docs/brand_guidelines.md) for Smartbox brand toke
 
 ## LLM routing
 
-The app automatically routes to the best available LLM:
-
 | Condition | Service used |
 |-----------|-------------|
 | `ANTHROPIC_API_KEY` set | Claude API (claude-sonnet-4-5 by default) |
-| No API key | Ollama local fallback (requires Ollama running) |
+| `OPENROUTER_API_KEY` set | OpenRouter (Qwen, DeepSeek, Llama free models) |
+| Neither set | Ollama local fallback |
+
+---
+
+## Media generation
+
+| Step | Primary | Fallback |
+|------|---------|---------|
+| Image | Vertex AI Imagen 4 Fast | Fal.ai FLUX → Lorem Picsum |
+| Video | Vertex AI Veo 3.1 Fast | Fal.ai Wan → Replicate Wan |
+
+Up to `ROW_CONCURRENCY` rows are processed in parallel (default 4).
 
 ---
 
 ## Environment variables
 
+### Required (pick at least one LLM)
+
+| Variable | Description |
+|----------|-------------|
+| `ANTHROPIC_API_KEY` | Anthropic API key |
+| `OPENROUTER_API_KEY` | OpenRouter API key (free models available) |
+
+### Vertex AI (image + video)
+
+| Variable | Description |
+|----------|-------------|
+| `VERTEXAI_PROJECT` | GCP project ID |
+| `VERTEXAI_LOCATION` | Region (default `us-central1`) |
+| `GOOGLE_APPLICATION_CREDENTIALS` | Path to service account JSON (local dev) |
+| `GOOGLE_APPLICATION_CREDENTIALS_JSON` | Full service account JSON string (Railway / containers) |
+| `VERTEXAI_PROJECT_2` | Second GCP project for load balancing (optional) |
+| `GOOGLE_APPLICATION_CREDENTIALS_JSON_2` | Credentials for second project (optional) |
+
+### Optional
+
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `ANTHROPIC_API_KEY` | _(none)_ | Anthropic API key. If unset, Ollama fallback is used. |
 | `DEFAULT_LOCALE` | `IE` | Locale code appended to DAM filenames |
 | `LLM_MODEL` | `claude-sonnet-4-5` | Claude model ID |
-| `OLLAMA_URL` | `http://localhost:11434` | Ollama base URL for local fallback |
+| `OLLAMA_URL` | `http://localhost:11434` | Ollama base URL |
+| `ROW_CONCURRENCY` | `4` | Max rows processed in parallel |
+| `FAL_API_KEY` | _(none)_ | Fal.ai key for image/video fallback |
+| `REPLICATE_API_KEY` | _(none)_ | Replicate key for video fallback |
+| `SUPABASE_URL` | _(none)_ | Supabase URL for asset persistence |
+| `SUPABASE_SERVICE_KEY` | _(none)_ | Supabase service key |
+| `SUPABASE_ANON_KEY` | _(none)_ | Supabase public key |
