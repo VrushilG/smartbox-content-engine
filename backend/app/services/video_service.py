@@ -55,37 +55,23 @@ async def generate_video(prompt: str, product_id: str = "") -> tuple[str, str, s
 
     Returns (video_url, status, error_reason).
     status is "done", "failed", or "skipped".
-    error_reason combines failures from all attempted providers so the user can
-    see every failure, e.g. "Vertex Veo: Quota exceeded; Fal.ai: balance exhausted".
+
+    Uses the first configured provider only — no fallback cascade to avoid
+    unexpected charges if the primary provider fails.
+
+    Provider priority (first configured wins):
+      1. Vertex AI Veo 3 Fast — if VERTEXAI_PROJECT is set (PRIMARY).
+      2. Fal.ai Wan           — if FAL_API_KEY is set.
+      3. Replicate Wan        — if REPLICATE_API_KEY is set.
     """
-    errors: list[str] = []
-
-    # ---- Primary: Vertex AI Veo 3 Fast ----
     if settings.use_vertexai and product_id:
-        url, status, reason = await _generate_via_vertex_veo(prompt, product_id)
-        if status == "done":
-            return url, status, ""
-        errors.append(f"Vertex Veo: {reason}" if reason else "Vertex Veo: failed")
-        logger.warning("vertex_veo_failed_trying_fal", reason=reason)
+        return await _generate_via_vertex_veo(prompt, product_id)
 
-    # ---- Fallback 1: Fal.ai Wan ----
     if settings.use_fal:
-        url, status, reason = await _generate_via_fal(prompt)
-        if status == "done":
-            return url, status, ""
-        errors.append(f"Fal.ai: {reason}" if reason else "Fal.ai: failed")
-        logger.warning("fal_video_failed_trying_replicate", reason=reason)
+        return await _generate_via_fal(prompt)
 
-    # ---- Fallback 2: Replicate Wan ----
     if settings.use_replicate:
-        url, status, reason = await _generate_via_replicate(prompt)
-        if status == "done":
-            return url, status, ""
-        errors.append(f"Replicate: {reason}" if reason else "Replicate: failed")
-        return "", "failed", "; ".join(errors)
-
-    if errors:
-        return "", "failed", "; ".join(errors)
+        return await _generate_via_replicate(prompt)
 
     logger.info("video_generate_skipped", reason="no_provider_configured")
     return "", "skipped", "No video provider configured — add VERTEXAI_PROJECT, FAL_API_KEY, or REPLICATE_API_KEY"

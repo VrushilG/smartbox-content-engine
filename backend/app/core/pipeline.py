@@ -234,6 +234,11 @@ async def process_csv(
                 "image_status": image_status,
             }))
 
+            if image_status == "failed":
+                logger.warning("row_stopped_image_failed", job_id=job_id, product_id=row.id)
+                await queue.put(("row_error", {"job_id": job_id, "product_id": row.id, "error": "Image generation failed — skipping video to avoid further charges"}))
+                return
+
             # ---- Step 3: Video ----
             logger.info("row_video_generating", job_id=job_id, product_id=row.id)
             await queue.put(("row_video_generating", {"job_id": job_id, "product_id": row.id}))
@@ -249,6 +254,11 @@ async def process_csv(
                 "video_status": video_status,
                 "video_error": video_error,
             }))
+
+            if video_status == "failed":
+                logger.warning("row_stopped_video_failed", job_id=job_id, product_id=row.id, reason=video_error)
+                await queue.put(("row_error", {"job_id": job_id, "product_id": row.id, "error": f"Video generation failed — {video_error}"}))
+                return
 
             # ---- Step 4: Persist to Supabase (no-op if not configured) ----
             await supabase_service.save_asset(job_id, asset, name=row.name, user_id=user_id)

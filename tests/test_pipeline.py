@@ -122,8 +122,8 @@ async def test_process_csv_llm_error_yields_row_error(sample_product_row: Produc
 
 
 @pytest.mark.asyncio
-async def test_process_csv_image_failure_does_not_abort_row(sample_product_row: ProductRow):
-    """Image service failure should set image_status=failed, not abort the row."""
+async def test_process_csv_image_failure_stops_row(sample_product_row: ProductRow):
+    """Image service failure should emit row_error and skip video generation."""
     mock_service = MagicMock()
     mock_service.generate = AsyncMock(return_value=make_mock_asset(sample_product_row.id))
 
@@ -135,10 +135,11 @@ async def test_process_csv_image_failure_does_not_abort_row(sample_product_row: 
             async for event_name, event_data in process_csv([sample_product_row], job_id="test-job"):
                 events.append((event_name, event_data))
 
-    row_done = next((d for n, d in events if n == "row_done"), None)
-    assert row_done is not None
-    assert row_done["asset"]["image_status"] == "failed"
-    assert row_done["asset"]["image_url"] == ""
+    event_names = [n for n, _ in events]
+    # Row should stop after image failure — no video step, no row_done
+    assert "row_error" in event_names
+    assert "row_video_generating" not in event_names
+    assert "row_done" not in event_names
 
 
 @pytest.mark.asyncio

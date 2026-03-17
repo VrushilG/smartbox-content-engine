@@ -30,7 +30,17 @@ async def parse_csv(file: UploadFile) -> list[ProductRow]:
         raise CSVValidationError("Uploaded CSV file is empty.")
 
     try:
-        df = pd.read_csv(io.BytesIO(raw), dtype=str)
+        # Try UTF-8 first, then fall back to Windows-1252 (common for Excel-exported CSVs)
+        for encoding in ("utf-8-sig", "windows-1252", "latin-1"):
+            try:
+                df = pd.read_csv(io.BytesIO(raw), dtype=str, encoding=encoding)
+                break
+            except UnicodeDecodeError:
+                continue
+        else:
+            raise CSVValidationError("Could not decode CSV — please save it as UTF-8.")
+    except CSVValidationError:
+        raise
     except Exception as exc:
         raise CSVValidationError(f"Could not parse CSV: {exc}") from exc
 

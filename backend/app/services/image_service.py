@@ -126,10 +126,12 @@ async def _generate_via_fal(prompt: str, product_id: str) -> tuple[str, str]:
 async def generate_image(prompt: str, product_id: str) -> tuple[str, str]:
     """Generate an image from a text prompt and save it locally.
 
-    Tries providers in order:
-      1. Vertex AI Imagen 4 Fast — if vertexai_project is set (PRIMARY).
-      2. Fal.ai FLUX Schnell     — if fal_api_key is set.
-      3. Lorem Picsum            — free stock photo, no key (final fallback).
+    Uses the first configured provider only — no fallback cascade to avoid
+    unexpected charges if the primary provider fails.
+
+    Provider priority (first configured wins):
+      1. Vertex AI Imagen 4 Fast — if VERTEXAI_PROJECT is set (PRIMARY).
+      2. Fal.ai FLUX Schnell     — if FAL_API_KEY is set.
 
     Args:
         prompt: The visual prompt string (from GeneratedAsset.image_prompt).
@@ -137,37 +139,13 @@ async def generate_image(prompt: str, product_id: str) -> tuple[str, str]:
 
     Returns:
         A tuple of (image_url: str, status: str).
-        status is "done" on success or "failed" if all providers fail.
+        status is "done" on success or "failed" if the provider fails.
     """
-    # ---- Primary: Vertex AI Imagen 4 Fast ----
     if settings.use_vertexai:
-        url, status = await _generate_via_vertex_imagen(prompt, product_id)
-        if status == "done":
-            return url, status
-        logger.warning("vertex_imagen_failed_trying_fal", product_id=product_id)
+        return await _generate_via_vertex_imagen(prompt, product_id)
 
-    # ---- Fallback 1: Fal.ai FLUX Schnell ----
     if settings.use_fal:
-        url, status = await _generate_via_fal(prompt, product_id)
-        if status == "done":
-            return url, status
-        logger.warning("fal_image_failed_trying_picsum", product_id=product_id)
+        return await _generate_via_fal(prompt, product_id)
 
-    # ---- Final fallback: Lorem Picsum (free, no key, deterministic per product) ----
-    logger.info("image_generate_start", provider="picsum", product_id=product_id)
-    try:
-        picsum_url = f"https://picsum.photos/seed/{product_id}/1024/576"
-        async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as client:
-            resp = await client.get(picsum_url)
-            resp.raise_for_status()
-            if resp.content:
-                _ensure_static_dir()
-                image_path = STATIC_IMAGES_DIR / f"{product_id}.jpg"
-                image_path.write_bytes(resp.content)
-                image_url = f"/static/images/{product_id}.jpg"
-                logger.info("image_generate_done", provider="picsum", product_id=product_id, url=image_url)
-                return image_url, "done"
-    except Exception as exc:
-        logger.warning("picsum_image_failed", product_id=product_id, error=str(exc)[:200])
-
+    logger.warning("image_generate_skipped", reason="no_provider_configured", product_id=product_id)
     return "", "failed"
