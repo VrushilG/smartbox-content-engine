@@ -8,6 +8,7 @@ from app.models.product import ProductRow
 from app.prompts.category_tones import CATEGORY_TONES
 from app.prompts.content_prompt import build_prompt
 from app.prompts.system_prompt import SYSTEM_PROMPT
+from app.prompts.video_template import build_video_prompt
 from app.services import image_service, supabase_service, video_service
 from app.services.llm_router import get_service
 from app.utils.exceptions import PipelineError
@@ -125,11 +126,15 @@ async def _run_video_step(
     To change the video provider or model:
       - app/services/video_service.py  (Google Veo → Fal.ai Wan → Replicate cascade)
     """
-    video_prompt = (
+    scene = (
         asset.video_prompt
-        or f"Cinematic wide shot of {row.name} in {row.location}, "
-           "golden hour lighting, smooth camera movement"
+        or f"people enjoying {row.name}, warm atmosphere, natural setting"
     )
+    environment_hint = (
+        f"a scenic location near {row.location}" if row.location else "a scenic outdoor location"
+    )
+    video_prompt = build_video_prompt(scene, environment_hint)
+    logger.debug("video_prompt_composed", product_id=row.id, prompt=video_prompt)
 
     video_url, video_status, video_error = await video_service.generate_video(
         video_prompt, product_id=row.id
