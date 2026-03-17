@@ -4,6 +4,8 @@
 
 Smartbox Group is Europe's leading experience gift company, headquartered in Dublin, Ireland. We sell moments — weekends away, spa days, adventure experiences, and culinary journeys — packaged as gift boxes. Our brand is warm, optimistic, and human.
 
+**Brand platform:** *Choose Wisely* — one well-chosen experience can change everything. This is the Butterfly Effect of gifting: the right gift at the right moment doesn't just create a memory, it shifts someone's perspective.
+
 ---
 
 ## Design tokens
@@ -14,7 +16,7 @@ All tokens are defined as CSS custom properties in `frontend/src/css/main.css`. 
 
 | Token | Value | Usage |
 |-------|-------|-------|
-| `--color-coral` | `#E8593C` | Primary CTA, progress fill, active borders, icons |
+| `--color-coral` | `#E8593C` | Primary CTA, progress fill, active borders, icons, prototype banner |
 | `--color-coral-hover` | `#D14A2E` | Hover state for coral elements |
 | `--color-coral-tint` | `#FFF0EC` | Subtle backgrounds on hover, pills, file info |
 | `--color-navy` | `#1A1A2E` | Header, hero, dark sections |
@@ -47,6 +49,15 @@ Uses an 8-point grid via CSS custom properties (`--space-1` = 0.25rem through `-
 ---
 
 ## Component specifications
+
+### Prototype disclaimer banner
+- CSS class: `.prototype-banner`
+- Background: `var(--color-coral)`
+- Text colour: white
+- Position: top of page — appears on both the auth overlay and the main app
+- Text: *"This is a prototype built with open-source and paid tools, created exclusively for demonstration purposes as part of the interview process."*
+- Font size: 0.8rem, weight 500
+- Shown on every page load — not dismissible
 
 ### CTA button
 - Background: `var(--color-coral)`
@@ -102,9 +113,23 @@ Uses an 8-point grid via CSS custom properties (`--space-1` = 0.25rem through `-
 5. **Aspirational but accessible** — luxury tone without exclusivity
 
 ### Forbidden words
+
 Never use in generated copy or UI strings:
-- "embark", "journey", "unforgettable", "indulge", "luxurious"
-- Corporate jargon: "leverage", "synergy", "world-class", "cutting-edge"
+
+| Word / phrase | Why forbidden |
+|---------------|---------------|
+| `embark` | Travel cliché |
+| `journey` | Overused metaphor |
+| `unforgettable` | Tells rather than shows |
+| `indulge` | Sounds permission-seeking |
+| `luxurious` | Exclusionary, vague |
+| `amazing` | Meaningless filler |
+| `incredible` | Meaningless filler |
+| `perfect gift` | Generic, lazy |
+| `treat yourself` | Overused, lacks warmth |
+| `unique experience` | Every experience claims this |
+| `leverage` | Corporate jargon |
+| `synergy` | Corporate jargon |
 
 ### Fixed UI strings
 
@@ -120,10 +145,84 @@ Never use in generated copy or UI strings:
 
 ## Category tone guidelines
 
-| Category | Tone |
-|----------|------|
-| `getaways` | Romantic and escapist — leaving the everyday behind |
-| `wellness` | Calm, restorative, nurturing — genuine self-care |
-| `adventure` | Energetic, exhilarating — bold experiences |
-| `gastronomy` | Sensory, celebratory — pleasure of exceptional food |
-| `pampering` | Indulgent, personal — being looked after |
+The system prompt injects per-category tone guidance for every product row. The full creative direction for each category is defined in `backend/app/prompts/category_tones.py`.
+
+### Getaways
+
+**Tone:** Escapist, quietly romantic — the moment of leaving everyday life behind.
+
+Write about open windows, fresh air, a new town, someone's hand on yours. Intimate and grounded joy — not grand declarations. The feeling of checking in somewhere and thinking *this is exactly what I needed*. Gentle, warmly evocative.
+
+### Wellness
+
+**Tone:** Calm, restorative, and gently humorous — the hard-won bliss of doing nothing.
+
+Capture the almost absurd pleasure of being looked after — that half-asleep smile during a massage, the post-treatment glow, the silence you didn't know you needed. Avoid wellness clichés like "recharge" or "reconnect". Make it feel earned and real.
+
+### Adventure
+
+**Tone:** Energetic, daring, irreverently fun — celebrate the absurdity and the adrenaline.
+
+Write with punchy rhythm. Capture the gritty joy of doing something hard or ridiculous — the laugh afterwards, the aching legs, the photo you couldn't not take. Accessible boldness, not extreme sport bravado. Short sentences. Strong verbs.
+
+### Gastronomy
+
+**Tone:** Sensory, warm, and celebratory — the ritual of exceptional food and drink.
+
+Almost make them taste and smell it. The anticipation, the first bite, the clinking of glasses. Write about texture, temperature, the smell of something baking. Sophisticated but never snobbish — this is joy, not status.
+
+### Pampering
+
+**Tone:** Curious, infectious excitement — the nervousness before and the glow after.
+
+Capture the specific, vivid *I can't believe I just did that* energy. Not generic relaxation — real reactions. The unexpected delight, the small luxuries that hit differently. Conversational and slightly surprised.
+
+---
+
+## Video template — branded box-opening sequence
+
+Every generated video clip uses the same brand signature moment, defined in
+`backend/app/prompts/video_template.py`:
+
+```
+Drone approaching Smartbox box in {environment_hint}. Box features Smartbox branding.
+Lid opens with soft magical glow. Inside: {scene}.
+Premium travel-commercial cinematic style, smooth camera motion,
+natural lighting, joyful authentic emotions, 4 seconds total.
+```
+
+**How it works:**
+- The LLM generates `{scene}` — a 15–25 word description of what the recipient experiences inside the box (e.g. *"a woman stepping into a mountain hot spring at dusk, face lighting up with joy"*)
+- `{environment_hint}` is derived from the product's location (e.g. *"Irish countryside"*)
+- The template wraps the scene with the Smartbox brand signature (drone approach → box opening → glow reveal) ensuring every video starts with a consistent branded moment
+- No camera direction instructions in the `scene` — those are in the template
+
+**Rules for `video_prompt` field generated by the LLM:**
+- 15–25 words only
+- Describe the scene *inside* the box: who, what, where, mood
+- No camera movements, no "cinematic", no "4K" — the template handles all of that
+- Grounded in the product's specific setting and key selling point
+
+---
+
+## DAM filename convention
+
+All generated files follow this naming convention, constructed exclusively by `core/dam_naming.py`:
+
+```
+PROD-{product_id}_{CATEGORY}_{LOCALE}_{YYYYMMDD}.mp4
+```
+
+| Part | Source | Example |
+|------|--------|---------|
+| `PROD-` | Fixed prefix | `PROD-` |
+| `{product_id}` | CSV `id` column | `1002` |
+| `{CATEGORY}` | CSV `category` uppercased | `WELLNESS` |
+| `{LOCALE}` | `DEFAULT_LOCALE` env var (default: `IE`) | `IE` |
+| `{YYYYMMDD}` | UTC date of generation | `20260317` |
+
+**Full example:** `PROD-1002_WELLNESS_IE_20260317.mp4`
+
+Valid category values in filenames: `GETAWAYS`, `WELLNESS`, `ADVENTURE`, `GASTRONOMY`, `PAMPERING`
+
+**Rule:** This string is never constructed outside of `core/dam_naming.py`. Do not build it inline anywhere else in the codebase.
