@@ -21,6 +21,11 @@ from app.utils.logger import get_logger
 
 logger = get_logger(__name__)
 
+# Veo has strict per-minute quotas (typically 1–2 QPM).
+# Serialise all Veo calls so parallel row processing doesn't trigger
+# RESOURCE_EXHAUSTED / 429 errors on Railway's low-latency network.
+_VEO_SEMAPHORE = asyncio.Semaphore(1)
+
 
 def _get_vertex_client():
     """Return a Vertex AI genai.Client using a randomly chosen configured project.
@@ -96,78 +101,79 @@ async def _generate_via_vertex_veo(prompt: str, product_id: str) -> tuple[str, s
         return "", "skipped", "google-genai package not installed"
 
     logger.info("video_generate_start", provider="vertex_veo", model=VERTEX_VEO_MODEL, product_id=product_id)
-    try:
-        client = _get_vertex_client()
+    async with _VEO_SEMAPHORE:
+        try:
+            client = _get_vertex_client()
 
-        # Step 1: Submit generation
-        operation = await asyncio.to_thread(
-            client.models.generate_videos,
-            model=VERTEX_VEO_MODEL,
-            prompt=prompt,
-            config=genai_types.GenerateVideosConfig(
-                aspect_ratio="16:9",
-                duration_seconds=4,  # Supported values: 4, 6, 8
-            ),
-        )
-        logger.info("vertex_veo_operation_submitted", product_id=product_id, done=operation.done)
+            # Step 1: Submit generation
+            operation = await asyncio.to_thread(
+                client.models.generate_videos,
+                model=VERTEX_VEO_MODEL,
+                prompt=prompt,
+                config=genai_types.GenerateVideosConfig(
+                    aspect_ratio="16:9",
+                    duration_seconds=4,  # Supported values: 4, 6, 8
+                ),
+            )
+            logger.info("vertex_veo_operation_submitted", product_id=product_id, done=operation.done)
 
-        # Step 2: Poll until done
-        attempt = 0
-        while not operation.done:
-            await asyncio.sleep(15)
-            operation = await asyncio.to_thread(client.operations.get, operation)
-            attempt += 1
-            logger.info("vertex_veo_poll", product_id=product_id, attempt=attempt, done=operation.done)
-            if attempt >= 60:  # max 15 minutes
-                logger.warning("vertex_veo_timeout", product_id=product_id)
-                return "", "failed", "Generation timed out after 15 minutes"
+            # Step 2: Poll until done
+            attempt = 0
+            while not operation.done:
+                await asyncio.sleep(15)
+                operation = await asyncio.to_thread(client.operations.get, operation)
+                attempt += 1
+                logger.info("vertex_veo_poll", product_id=product_id, attempt=attempt, done=operation.done)
+                if attempt >= 60:  # max 15 minutes
+                    logger.warning("vertex_veo_timeout", product_id=product_id)
+                    return "", "failed", "Generation timed out after 15 minutes"
 
-        # Step 3: Check for API-level error (operation done but failed)
-        op_error = getattr(operation, "error", None)
-        if op_error:
-            err_msg = getattr(op_error, "message", str(op_error))
-            logger.error("vertex_veo_operation_error", product_id=product_id, error=err_msg)
-            return "", "failed", err_msg[:200]
+            # Step 3: Check for API-level error (operation done but failed)
+            op_error = getattr(operation, "error", None)
+            if op_error:
+                err_msg = getattr(op_error, "message", str(op_error))
+                logger.error("vertex_veo_operation_error", product_id=product_id, error=err_msg)
+                return "", "failed", err_msg[:200]
 
-        # Step 4: Extract first generated video
-        response = getattr(operation, "response", None)
-        gen_videos = getattr(response, "generated_videos", None) if response else None
-        if not gen_videos:
-            logger.error("vertex_veo_no_generated_videos", product_id=product_id, response=str(response)[:300])
-            return "", "failed", "No video returned by the API"
+            # Step 4: Extract first generated video
+            response = getattr(operation, "response", None)
+            gen_videos = getattr(response, "generated_videos", None) if response else None
+            if not gen_videos:
+                logger.error("vertex_veo_no_generated_videos", product_id=product_id, response=str(response)[:300])
+                return "", "failed", "No video returned by the API"
 
-        generated_video = gen_videos[0]
+            generated_video = gen_videos[0]
 
-        # Step 4: Extract video bytes and save to disk
-        # On Vertex AI the SDK returns inline video_bytes directly (no files.download needed)
-        video_bytes = getattr(generated_video.video, "video_bytes", None)
-        if not video_bytes:
-            logger.error("vertex_veo_empty_bytes", product_id=product_id)
-            return "", "failed", "No video bytes in response"
+            # Step 5: Extract video bytes and save to disk
+            # On Vertex AI the SDK returns inline video_bytes directly (no files.download needed)
+            video_bytes = getattr(generated_video.video, "video_bytes", None)
+            if not video_bytes:
+                logger.error("vertex_veo_empty_bytes", product_id=product_id)
+                return "", "failed", "No video bytes in response"
 
-        _ensure_static_dir()
-        video_path = STATIC_VIDEOS_DIR / f"{product_id}.mp4"
-        video_path.write_bytes(video_bytes)
+            _ensure_static_dir()
+            video_path = STATIC_VIDEOS_DIR / f"{product_id}.mp4"
+            video_path.write_bytes(video_bytes)
 
-        if not video_path.exists() or video_path.stat().st_size == 0:
-            logger.error("vertex_veo_empty_file", product_id=product_id)
-            return "", "failed", "Downloaded file was empty"
+            if not video_path.exists() or video_path.stat().st_size == 0:
+                logger.error("vertex_veo_empty_file", product_id=product_id)
+                return "", "failed", "Downloaded file was empty"
 
-        size_kb = video_path.stat().st_size // 1024
-        video_url = f"/static/videos/{product_id}.mp4"
-        logger.info("video_generate_done", provider="vertex_veo", product_id=product_id, size_kb=size_kb, url=video_url)
-        return video_url, "done", ""
+            size_kb = video_path.stat().st_size // 1024
+            video_url = f"/static/videos/{product_id}.mp4"
+            logger.info("video_generate_done", provider="vertex_veo", product_id=product_id, size_kb=size_kb, url=video_url)
+            return video_url, "done", ""
 
-    except Exception as exc:
-        err_str = str(exc)
-        if "quota" in err_str.lower() or "rate" in err_str.lower() or "429" in err_str:
-            reason = "Quota exceeded — try again later"
-        elif "not found" in err_str.lower() or "404" in err_str:
-            reason = "Model not available in your region"
-        else:
-            reason = err_str[:100]
-        logger.warning("vertex_veo_failed", product_id=product_id, error=err_str[:300], reason=reason)
-        return "", "failed", reason
+        except Exception as exc:
+            err_str = str(exc)
+            if "quota" in err_str.lower() or "rate" in err_str.lower() or "429" in err_str:
+                reason = f"Veo rate limit hit — {err_str[:150]}"
+            elif "not found" in err_str.lower() or "404" in err_str:
+                reason = f"Model not available — {err_str[:150]}"
+            else:
+                reason = err_str[:200]
+            logger.warning("vertex_veo_failed", product_id=product_id, error=err_str[:500], reason=reason)
+            return "", "failed", reason
 
 
 async def _generate_via_fal(prompt: str) -> tuple[str, str, str]:
